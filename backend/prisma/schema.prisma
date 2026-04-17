@@ -1,0 +1,179 @@
+// ---------------------------------------------------------
+// 1. CONFIGURATION & GÉNÉRATEUR
+// ---------------------------------------------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // ligne retiré suite qu pricinpe de lq nouvelle version 7 prisma
+  // url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// ENUMÉRATIONS (Clarté et limitation des valeurs) [cite: 1, 63, 165]
+// ---------------------------------------------------------
+enum OrderStatus {
+  PENDING   // Commande saisie par le serveur
+  VALIDATED // Confirmée par le caissier (Paiement reçu)
+  CANCELLED // Annulée (avec retour en stock)
+}
+
+enum PaymentType {
+  CASH
+  CARD
+  MOBILE_MONEY
+  ROOM_CHARGE
+  CREDIT
+}
+
+enum MovementType {
+  SALE                  // Vente normale
+  REQUISITION           // Transfert entre stocks
+  RETURN_AFTER_CANCEL   // Retour suite à annulation facture
+  PURCHASE              // Entrée fournisseur
+  LOSS                  // Perte ou casse
+}
+
+enum ReportStatus {
+  SUBMITTED
+  CONFIRMED_BY_RECEPTION
+  DEPOSITED_TO_MAIN_CASH
+}
+
+// ---------------------------------------------------------
+// 2. UTILISATEURS & RÔLES
+// ---------------------------------------------------------
+model User {
+  id               Int            @id @default(autoincrement())
+  name             String
+  email            String         @unique // Indexé par défaut car unique
+  /// @encrypted
+  password         String         // Stockage sécurisé (Hashé via bcrypt dans le service)
+  roles            UserRole[]
+  orders           Order[]        @relation("ServerOrders")
+  cashierValidations Order[]      @relation("CashierValidation")
+  dailyReports     DailyReport[]
+  createdAt        DateTime       @default(now())
+
+  @@index([email]) // Index pour recherche rapide lors du login
+}
+
+model Role {
+  id    Int        @id @default(autoincrement())
+  name  String     @unique // "ADMIN", "CASHIER", "RECEPTIONIST", etc. [cite: 1, 98]
+  users UserRole[]
+}
+
+model UserRole {
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id])
+  role   Role @relation(fields: [roleId], references: [id])
+  @@id([userId, roleId])
+}
+
+// ---------------------------------------------------------
+// 3. STOCKS & INVENTAIRE (Avec contraintes de quantité)
+// ---------------------------------------------------------
+model Product {
+  id          Int          @id @default(autoincrement())
+  name        String
+  code        String       @unique
+  salePrice   Float        // Doit être validé > 0 dans le service [cite: 127]
+  stocks      Stock[]
+  orderItems  OrderItem[]
+  movements   StockMovement[]
+
+  @@index([code])
+}
+
+model Stock {
+  id         Int      @id @default(autoincrement())
+  location   String   // "MAGASIN", "BAR", "CUISINE" [cite: 137]
+  quantity   Int      @default(0) // Validation logicielle : toujours >= 0
+  productId  Int
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@unique([productId, location]) // Un produit ne peut avoir qu'une ligne par lieu
+}
+
+model StockMovement {
+  id          Int          @id @default(autoincrement())
+  productId   Int
+  product     Product      @relation(fields: [productId], references: [id])
+  quantity    Int          // Positif pour entrée, négatif pour sortie
+  type        MovementType
+  from        String
+  to          String?
+  reason      String?      // Utile pour la traçabilité des annulations
+  createdAt   DateTime     @default(now())
+
+  @@index([productId, createdAt])
+}
+
+// ---------------------------------------------------------
+// 4. VENTES & FACTURATION (Le flux financier) [cite: 43, 68, 69]
+// ---------------------------------------------------------
+model Order {
+  id              Int          @id @default(autoincrement())
+  orderNumber     String       @unique // Numéro de facture (ex: FAC-2024-001)
+  totalAmount     Float
+  paymentType     PaymentType
+  status          OrderStatus  @default(PENDING) 
+  
+  userId          Int          // Serveur ayant pris la commande [cite: 169]
+  user            User         @relation("ServerOrders", fields: [userId], references: [id])
+  
+  cashierId       Int?         // Caissier ayant validé le paiement [cite: 155]
+  cashier         User?        @relation("CashierValidation", fields: [cashierId], references: [id])
+  
+  folioId         Int?         // Si lié à une chambre [cite: 44, 178]
+  folio           Folio?       @relation(fields: [folioId], references: [id])
+  
+  items           OrderItem[]
+  createdAt       DateTime     @default(now())
+  validatedAt     DateTime?
+
+  @@index([orderNumber])
+  @@index([status])
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  quantity  Int     // Doit être > 0
+  price     Float   // Historisation du prix au moment de la vente [cite: 190, 212]
+  order     Order   @relation(fields: [orderId], references: [id])
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+// ---------------------------------------------------------
+// 5. HÉBERGEMENT (PMS)
+// ---------------------------------------------------------
+model Folio {
+  id         Int       @id @default(autoincrement())
+  roomNr     String
+  guestName  String
+  isActive   Boolean   @default(true) // Si false, client a fait son check-out [cite: 203, 215]
+  orders     Order[]
+  
+  @@index([roomNr, isActive])
+}
+
+// ---------------------------------------------------------
+// 6. RAPPORTS & DÉPÔTS (Main Courante) [cite: 55, 317, 428]
+// ---------------------------------------------------------
+model DailyReport {
+  id               Int          @id @default(autoincrement())
+  date             DateTime     @default(now())
+  location         String       // "BAR", "RECEPTION", etc.
+  totalCollected   Float        // Somme physique collectée
+  status           ReportStatus @default(SUBMITTED)
+  createdById      Int
+  createdBy        User         @relation(fields: [createdById], references: [id])
+
+  @@index([date, location])
+}
