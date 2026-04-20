@@ -20,14 +20,6 @@ enum OrderStatus {
   CANCELLED // Annulée (avec retour en stock)
 }
 
-enum PaymentType {
-  CASH
-  CARD
-  MOBILE_MONEY
-  ROOM_CHARGE
-  CREDIT
-}
-
 enum MovementType {
   SALE                  // Vente normale
   REQUISITION           // Transfert entre stocks
@@ -77,11 +69,21 @@ model UserRole {
 // ---------------------------------------------------------
 // 3. STOCKS & INVENTAIRE (Avec contraintes de quantité)
 // ---------------------------------------------------------
+model Category {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique // refer to POS
+  products Product[]
+}
+
 model Product {
   id          Int          @id @default(autoincrement())
   name        String
   code        String       @unique
   salePrice   Float        // Doit être validé > 0 dans le service [cite: 127]
+
+  categoryId Int
+  category Category        @relation(fields: [categoryId], references: [id])
+
   stocks      Stock[]
   orderItems  OrderItem[]
   movements   StockMovement[]
@@ -116,12 +118,23 @@ model StockMovement {
 // ---------------------------------------------------------
 // 4. VENTES & FACTURATION (Le flux financier) [cite: 43, 68, 69]
 // ---------------------------------------------------------
+model PaymentMethod {
+  id              Int          @id @default(autoincrement())
+  name            String       @unique // Cash,momo: Airtel m, orange m, Visa,...
+  category        String?       // grouper par type
+  isActive        Boolean      @default(true) // permet de desactiver sans supprimer
+  orders          Order[]
+}
+
 model Order {
   id              Int          @id @default(autoincrement())
   orderNumber     String       @unique // Numéro de facture (ex: FAC-2024-001)
   totalAmount     Float
-  paymentType     PaymentType
+  
   status          OrderStatus  @default(PENDING) 
+
+  paymentMethodId Int
+  paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id])
   
   userId          Int          // Serveur ayant pris la commande [cite: 169]
   user            User         @relation("ServerOrders", fields: [userId], references: [id])
