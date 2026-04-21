@@ -1,7 +1,17 @@
 import { PrismaClient } from '@prisma/client'
-const prisma = new PrismaClient()
+import 'dotenv/config'
+import { Pool } from 'pg'
+import { PrismaPg } from '@prisma/adapter-pg'
+
+const connectionString = `${process.env.DATABASE_URL}`;
+const pool = new Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient(
+  { adapter }
+);
 
 async function main() {
+    console.log('Connexion établie ! Début du remplissage...')
   // 1. Création des Rôles de base
   const roles = ['ADMIN', 'CASHIER', 'RECEPTIONIST', 'WAITER', 'STORE_MANAGER']
   for (const roleName of roles) {
@@ -30,7 +40,7 @@ async function main() {
     { name: 'M-PESA', category: 'MOBILE' },
     { name: 'VISA', category: 'CARD' },
     { name: 'MASTERCARD', category: 'CARD' }
-  ]
+  ];
   for (const p of payments) {
     await prisma.paymentMethod.upsert({
       where: { name: p.name },
@@ -39,14 +49,14 @@ async function main() {
     })
   }
 
-  console.log('Bien!   Données de base (Rôles, Catégories, Paiements) insérées !')
+  console.log('Bien!   Données de base (Rôles, Catégories, Paiements) insérées avec succes!');
 }
 
 main()
   .catch((e) => {
-    console.error(e)
-    process.exit(1)
+    console.error(e);
+    process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect()
+    await prisma.$disconnect();
   })

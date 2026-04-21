@@ -9,6 +9,7 @@ datasource db {
   provider = "postgresql"
   // ligne retiré suite qu pricinpe de lq nouvelle version 7 prisma
   // url      = env("DATABASE_URL")
+  
 }
 
 // ---------------------------------------------------------
