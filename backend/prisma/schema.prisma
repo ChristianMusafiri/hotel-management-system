@@ -41,7 +41,8 @@ enum ReportStatus {
 model User {
   id               Int            @id @default(autoincrement())
   name             String
-  email            String         @unique // Indexé par défaut car unique
+  username         String         @unique // Identifiant de connexion sans escpace surtout(court)
+  email            String?         @unique // Indexé par défaut car unique, modify optional
   /// @encrypted
   password         String         // Stockage sécurisé (Hashé via bcrypt dans le service)
   roles            UserRole[]
@@ -50,7 +51,7 @@ model User {
   dailyReports     DailyReport[]
   createdAt        DateTime       @default(now())
 
-  @@index([email]) // Index pour recherche rapide lors du login
+  @@index([username]) // Index pour recherche rapide lors du login
 }
 
 model Role {
