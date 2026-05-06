@@ -5,15 +5,18 @@ import { AuthController } from './auth.controller';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import 'dotenv/config';
+import { JwtStrategy } from './strategies/jwt.strategy';
+
+
 @Module({
   imports: [
     PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'SECRET_HOTEL_M_2026',
+      secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '24h' }
     })
   ],
-  providers: [AuthService],
+  providers: [AuthService, JwtStrategy], // strategy added (reconnaitre Adm make roles)
   controllers: [AuthController]
 })
 export class AuthModule {}

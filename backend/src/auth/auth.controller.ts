@@ -9,7 +9,7 @@ export class AuthController {
     @Post('login') // Route : POST /auth/login
     @HttpCode(HttpStatus.OK) // renvoie 200 ,on se connecte
     async login(@Body() loginDto : LoginDto){
-        return this.authService.validateUser(loginDto)
+        return this.authService.login(loginDto)
     }
     @Post('register') // Route : POST /auth/register
     async register(@Body() registerDto : RegisterDto){

@@ -84,6 +84,7 @@ export class AuthService {
         //on cherche lutilisateur par son username
         const user = await this.prisma.user.findUnique({
             where: { username },
+            include: { roles: { include: { role: true } } } // donne acces au .name cfr guardsroles
         });
         // Si l'utilisateur n'existe pas, erreur 401
         if (!user) {
@@ -92,7 +93,7 @@ export class AuthService {
         // comparer le mot de passe (cripter bd)
         const isMatch = await bcrypt.compare(password, user.password);
         if(!isMatch) {
-            throw new UnauthorizedException('Identifiants incorrects');
+            throw new UnauthorizedException('Identifiants ou mot de passe incorrects');
         }
 
         // si tout est bon 
