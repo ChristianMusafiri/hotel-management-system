@@ -166,16 +166,79 @@ model OrderItem {
 }
 
 // ---------------------------------------------------------
-// 5. HÉBERGEMENT (PMS)
+// 5. HÉBERGEMENT & PMS actualisé
 // ---------------------------------------------------------
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  DIRTY         // Etat auto apres check-out
+  CLEANING      // En cours
+  MAINTENANCE   // Out of oder
+}
+
+model Room {
+  id         Int      @id @default(autoincrement())
+  number     String   @unique
+  type       String   // Royal SUITE, Standard,etc.
+  price      Float    
+  status     RoomStatus   @default(AVAILABLE)
+  
+  isReady    Boolean  @default(true)    //switch Housekeeper
+  lastCleanedAt   DateTime  @default(now())
+
+  folios     Folio[]
+}
+
+model Guest {
+  id         Int       @id @default(autoincrement())
+  name       String
+  email      String    @unique
+  password   String     //acces siteweb
+  phone      String?
+  reviews    Review[]   // commentaire du guest
+  folios     Folio[]
+  createdAt  DateTime  @default(now())
+}
+
+model Review {
+  id         Int       @id @default(autoincrement())
+  content    String
+  rating     Int
+  guestId    Int
+  guest      Guest     @relation(fields: [guestId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+enum StayType {
+  NIGHT      //nuitee
+  DAY_USE    // hourly booking(3h)
+}
+
+enum FolioStatus { 
+  RESERVED
+  CHECKED_IN
+  CHECK_OUT
+  CANCELLED
+ }
+
+// Petit modification pour lier le client à la chambre
 model Folio {
   id         Int       @id @default(autoincrement())
-  roomNr     String
-  guestName  String
-  isActive   Boolean   @default(true) // Si false, client a fait son check-out [cite: 203, 215]
+  roomId     Int
+  room       Room      @relation(fields: [roomId], references: [id])
+  guestId    Int?      // optionnel (client non inscrit: en passage)
+  guest      Guest?    @relation(fields: [guestId], references: [id])
+  guestName  String    // garger le nom pour archive rapide
+
+  stayType   StayType  @default(NIGHT)
+  checkIn    DateTime  @default(now())
+  checkOut   DateTime?
+
+  totalBill  Float     @default(0)     //easy bill separation with Ttamount
+  status     FolioStatus  @default(CHECKED_IN)
   orders     Order[]
   
-  @@index([roomNr, isActive])
+  @@index([roomId, status])
 }
 
 // ---------------------------------------------------------

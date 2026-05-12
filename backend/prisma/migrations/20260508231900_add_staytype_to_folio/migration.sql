@@ -1,0 +1,7 @@
+-- CreateEnum
+CREATE TYPE "StayType" AS ENUM ('NIGHT', 'DAY_USE');
+
+-- AlterTable
+ALTER TABLE "Folio" ADD COLUMN     "stayType" "StayType" NOT NULL DEFAULT 'NIGHT',
+ADD COLUMN     "totalBill" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ALTER COLUMN "status" SET DEFAULT 'CHECKED_IN';
