@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Request, Patch, UseGuards, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -23,8 +23,11 @@ export class RoomsController {
   async checkIn(
     @Param('id') id: string,
     @Body() body: { guestName: string; stayType: StayType; guestId?: number },
+    //ROLE dutilisateur connecté
+    @Request() req: any
   ) {
-    return this.roomsService.checkIn(+id, body);
+    const userRole = req.user.role //extraction du role from user injecté par JwtAuthGuard
+    return this.roomsService.checkIn(+id, body, userRole);
   }
 
   //Process checkout
@@ -32,6 +35,22 @@ export class RoomsController {
   @Roles('ADMIN', 'RECEPTIONIST')
   async checkOut(@Param('id') id: string) {
     return this.roomsService.checkOut(+id);
+  }
+
+  //Annulation penalité facture Room (overtime client)
+  @Patch('folio/:id/waive-overtime')
+  @UseGuards(JwtAuthGuard)
+  async waiveOvertime(
+    @Param('id') id:number,
+    @Body('reason') reason: string,
+    @Request() req: any
+  ) {
+    if(req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER') {
+      throw new ForbiddenException ("Acces refusé; Contactez le manager pour annuler la pénalité.")
+    }
+
+    const managerName = req.user.name
+    return this.roomsService.waiveOvertime(id, managerName, reason);
   }
 
   //Valider le nettoyage

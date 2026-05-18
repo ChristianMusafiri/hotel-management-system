@@ -5,10 +5,11 @@ import { RoomsService } from './rooms.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { JwtModule } from '@nestjs/jwt';
 
+import { HotelService } from '../hotel/hotel.service';
 @Module({
   imports: [PrismaModule, JwtModule],
 
   controllers: [RoomsController],
-  providers: [RoomsService]
+  providers: [RoomsService, HotelService]
 })
 export class RoomsModule {}

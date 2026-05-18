@@ -35,6 +35,54 @@ enum ReportStatus {
   DEPOSITED_TO_MAIN_CASH
 }
 
+enum PaymentStatus  {
+  UNPAID             // Dette
+  PAID                //payé à la reception
+  PARTIALLY_PAID
+}
+
+// ---------------------------------------------------------
+// HOTEL (Time & Currency config )
+// ---------------------------------------------------------
+
+model Hotel {
+  id              Int         @id @default(autoincrement())
+  name            String  
+  address         String? 
+  phone           String?
+  email           String? 
+  logo            String? 
+
+  timezone        String      @default("Africa/Lubumbashi")     //reference calcul du temps
+  dateFormat      String      @default("DD/MM/YYYY")     //monnaie de calcul
+  baseCurrency    String      @default("USD")     //monnaie de calcul
+  localCurrency   String      @default("FC")     //monnaie local
+  currencyExchangeRate   Float      @default(2300)   //taux du jour
+  taxeRate        Float       @default(16)       // Rdc taxe TVA: 16%
+
+  //Config hoteliere (regle opperationnelle)
+  checkInHour     Int         @default(14)
+  checkOutHour    Int         @default(10)
+  dayUseMaxHours  Int         @default(6)
+
+  // Gestion A bonnement
+  subscriptionEnd      DateTime      @default(now())
+
+  //feature TOGGLING
+  isPosEnabled    Boolean         @default(true)
+  isStockEnabled  Boolean         @default(true)
+  isHousekeepingEnabled  Boolean   @default(true)
+  isOvertimeDayuseFeeEnabled  Boolean   @default(false)
+
+  //Config DAY_USE overtime
+  dayUseOvertimeRate         Float          @default(8) // 
+  dayUseGracePeriodMins      Int            @default(15)  // 15min gratuites Periode de grace 
+  
+  
+  updatedAt       DateTime    @updatedAt
+}
+
+
 // ---------------------------------------------------------
 // 2. UTILISATEURS & RÔLES
 // ---------------------------------------------------------
@@ -118,7 +166,7 @@ model StockMovement {
 }
 
 // ---------------------------------------------------------
-// 4. VENTES & FACTURATION (Le flux financier) [cite: 43, 68, 69]
+// 4. VENTES & FACTURATION & Encaissements
 // ---------------------------------------------------------
 model PaymentMethod {
   id              Int          @id @default(autoincrement())
@@ -126,7 +174,26 @@ model PaymentMethod {
   category        String?       // grouper par type
   isActive        Boolean      @default(true) // permet de desactiver sans supprimer
   orders          Order[]
+  payments       Payment[]
 }
+
+//flux financier
+model Payment { 
+  id                   Int           @id  @default(autoincrement())
+  amount               Float          //montant encaissé lors de la transaction
+  createdAt            DateTime      @default(now())
+  receivedBy           String        // username
+
+  // Liaison Optionnelle : soit c'est pour une chambre (Folio), soit pour une commande directe (POS)
+  folioId              Int?
+  folio                Folio?        @relation(fields: [folioId], references: [id]) 
+
+
+  paymentMethodId      Int
+  PaymentMethod        PaymentMethod @relation(fields: [paymentMethodId], references: [id])
+
+  @@index([folioId])
+ }
 
 model Order {
   id              Int          @id @default(autoincrement())
@@ -234,9 +301,17 @@ model Folio {
   checkIn    DateTime  @default(now())
   checkOut   DateTime?
 
-  totalBill  Float     @default(0)     //easy bill separation with Ttamount
-  status     FolioStatus  @default(CHECKED_IN)
-  orders     Order[]
+  //Gestion depassement timing Day_Use
+  isOverTimeWaived          Boolean             @default(false)  //true , si le manager accepte dannuler la penalité
+  overtimeWaivedBy          String?             //nom (ID) du user qui a annulé
+  waivedAt                  DateTime?           //Date annulation
+  reasonForWaive            String?             //obligatoire 
+
+  totalBill       Float          @default(0)     //easy bill separation with Ttamount
+  status          FolioStatus    @default(CHECKED_IN)
+  paymentStatus   PaymentStatus  @default(UNPAID)
+  orders          Order[]
+  payments         Payment[]
   
   @@index([roomId, status])
 }

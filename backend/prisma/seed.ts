@@ -12,8 +12,33 @@ const prisma = new PrismaClient(
 
 async function main() {
     console.log('Connexion établie ! Début du remplissage...')
+
+  // CONFIG HOTEL : LIGNE UNIQUE : ID: 1
+  await prisma.hotel.upsert({
+    where: { id: 1 },
+    update: {}, //si lhotel existe deja on est touche pas à ses config modifiées par l'Admin
+    create : {
+      id: 1,
+      name: "MON HOTEL - CONFIGURATION GLOBALE",
+      timezone: "Africa/Lubumbashi",
+      baseCurrency: "USD",
+      localCurrency: "CDF",
+      currencyExchangeRate: 2300,
+      taxeRate: 16,
+      checkInHour: 14,
+      checkOutHour: 10,
+      dayUseMaxHours: 6,
+      isPosEnabled: true,
+      isStockEnabled: true,
+      isHousekeepingEnabled: true,
+      isOvertimeDayuseFeeEnabled: true,
+      dayUseOvertimeRate: 8,
+      dayUseGracePeriodMins: 15,
+    },
+  });
+
   // 1. Création des Rôles de base
-  const roles = ['ADMIN', 'CASHIER', 'RECEPTIONIST', 'WAITER', 'STORE_MANAGER','HOUSE_KEEPER']
+  const roles = ['ADMIN', 'CASHIER', 'RECEPTIONIST', 'WAITER', 'STORE_MANAGER','HOUSE_KEEPER','MANAGER']
   for (const roleName of roles) {
     await prisma.role.upsert({
       where: { name: roleName },
