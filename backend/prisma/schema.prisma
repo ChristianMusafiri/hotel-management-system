@@ -17,15 +17,23 @@ datasource db {
 // ---------------------------------------------------------
 enum OrderStatus {
   PENDING   // Commande saisie par le serveur
+
+  PENDING_ROOMLINK // Envoyée à la recption, en attente de validation pour la chambre
+  CHARGED_TO_ROOM  // Validee et imputé sur le Folio de la chambre
+
+  PRINTED   // Facture imprimée (Verrouillée, en attente d'encaissement à la caisse)
   VALIDATED // Confirmée par le caissier (Paiement reçu)
+  LOSS      // Perte (Client parti sans payer, imputé au serveur)
   CANCELLED // Annulée (avec retour en stock)
 }
 
 enum MovementType {
   SALE                  // Vente normale
-  REQUISITION           // Transfert entre stocks
+  REQUISITION           // Transfert entre stocks et POS (demande)
   RETURN_AFTER_CANCEL   // Retour suite à annulation facture
-  PURCHASE              // Entrée fournisseur
+  PURCHASE              // Entrée fournisseur(Goods Received)
+  INTERNAL_PRODUCTION   // Consommation de matières premières pour une recette (Fiche technique)
+  INTERNAL_STAFF        // Nourriture ou consommation du personnel (Staff)
   LOSS                  // Perte ou casse
 }
 
@@ -39,6 +47,19 @@ enum PaymentStatus  {
   UNPAID             // Dette
   PAID                //payé à la reception
   PARTIALLY_PAID
+}
+
+enum PurchaseStatus  {
+  PENDING_APPROVAL
+  APPROVED
+  PARTIALLY_RECEIVED     // reception partielle(gate,Gstore,items requisitionés)
+  RECEIVED
+  REJECTED
+}
+
+enum ShiftStatus  {
+  OPEN
+  CLOSED
 }
 
 // ---------------------------------------------------------
@@ -69,10 +90,12 @@ model Hotel {
   subscriptionEnd      DateTime      @default(now())
 
   //feature TOGGLING
-  isPosEnabled    Boolean         @default(true)
-  isStockEnabled  Boolean         @default(true)
-  isHousekeepingEnabled  Boolean   @default(true)
-  isOvertimeDayuseFeeEnabled  Boolean   @default(false)
+  isPosEnabled                Boolean         @default(true)
+  isStockEnabled              Boolean         @default(true)
+  isHousekeepingEnabled       Boolean         @default(true)
+  isOvertimeDayuseFeeEnabled  Boolean         @default(false)
+  isMultiShiftEnabled         Boolean         @default(false)    //shift partagé( demi) journee)
+  maxPosAllowed               Int             @default(2)        //LIMITE POS 
 
   //Config DAY_USE overtime
   dayUseOvertimeRate         Float          @default(8) // 
@@ -93,10 +116,14 @@ model User {
   email            String?         @unique // Indexé par défaut car unique, modify optional
   /// @encrypted
   password         String         // Stockage sécurisé (Hashé via bcrypt dans le service)
+  
   roles            UserRole[]
   orders           Order[]        @relation("ServerOrders")
   cashierValidations Order[]      @relation("CashierValidation")
   dailyReports     DailyReport[]
+  posShifts        PosShift[]     // user opens shift
+  purchaseRequests PurchaseRequest[] // purchase requested by user
+  
   createdAt        DateTime       @default(now())
 
   @@index([username]) // Index pour recherche rapide lors du login
@@ -113,11 +140,50 @@ model UserRole {
   roleId Int
   user   User @relation(fields: [userId], references: [id])
   role   Role @relation(fields: [roleId], references: [id])
+ 
   @@id([userId, roleId])
 }
 
 // ---------------------------------------------------------
-// 3. STOCKS & INVENTAIRE (Avec contraintes de quantité)
+//  STUCTURE MULTI-POS & MENU
+// ---------------------------------------------------------
+model PointOfSale {
+  id                        Int                   @id @default(autoincrement())
+  name                      String                @unique                        //"RESAURANT", "BAR", ...
+  type                      String                @default("STANDARD")
+  isActive                  Boolean               @default(true)
+
+  //Mapping
+  printerId                 String?
+  printerPort               Int                   @default(9100) //port standard thermal printer
+
+  menus                     PosMenu[]             // fenetre dactivation des articles pour le pos
+  orders                    Order[]
+  stocks                    Stock[]
+  purchaseRequests          PurchaseRequest[]
+  posShifts                 PosShift[]
+
+  dailyReports              DailyReport[]      // liason rapport journalier  Pos
+}
+
+model PosMenu  {
+  posId                     Int
+  productId                 Int
+  pos                       PointOfSale           @relation(fields: [posId], references: [id])
+  product                   Product               @relation(fields: [productId], references: [id])
+
+  // Premium: Prix promotionnel 
+  customPrice               Float?
+  isActive                  Boolean               @default(true)
+  createdAt                 DateTime              @default(now())
+
+  salePrice                 Float
+
+  @@id([posId, productId])
+}
+
+// ---------------------------------------------------------
+// 3. STOCKS & INVENTAIRE (Avec contraintes de quantité) & FICHE TECHNIQUE CUISINE & MATIERE PREMIERE
 // ---------------------------------------------------------
 model Category {
   id       Int       @id @default(autoincrement())
@@ -126,35 +192,56 @@ model Category {
 }
 
 model Product {
-  id          Int          @id @default(autoincrement())
-  name        String
-  code        String       @unique
-  salePrice   Float        // Doit être validé > 0 dans le service [cite: 127]
+  id                       Int          @id @default(autoincrement())
+  name                     String
+  code                     String       @unique
+  defaultPurchasePrice     Float         // Purchase Price (Prix d'achat de Base)
+  defaultSalePrice         Float        // Doit être validé > 0 dans le service [cite: 127]
 
-  categoryId Int
-  category Category        @relation(fields: [categoryId], references: [id])
+  itemCategory             String
+  itemMeasure              String
+  itemUnit                 String
+  itemGroup                String?
+  itemFamily               String?
+  itemOrigin               String?
+  itemSupplier             String?
+  image                    String? 
 
+  isService                Boolean       @default(false)     // true = Service/Abonnement, false = Produit physique stockable
+
+  categoryId               Int
+  category                 Category      @relation(fields: [categoryId], references: [id])
+
+  //Relations
   stocks      Stock[]
+  posMenus    PosMenu[]                //permet d'activer ce produit sur diff POS
   orderItems  OrderItem[]
   movements   StockMovement[]
+
+  purchaseItems   PurchaseOrderItem[]
+  recipes         Recipe[]
+  usedInRecipes   RecipeIngredient[]
 
   @@index([code])
 }
 
 model Stock {
   id         Int      @id @default(autoincrement())
-  location   String   // "MAGASIN", "BAR", "CUISINE" [cite: 137]
+  //location   String   // "MAGASIN", "BAR", "CUISINE" [cite: 137]
   quantity   Int      @default(0) // Validation logicielle : toujours >= 0
   productId  Int
   product    Product  @relation(fields: [productId], references: [id])
 
-  @@unique([productId, location]) // Un produit ne peut avoir qu'une ligne par lieu
+  posId      Int?
+  pos        PointOfSale?   @relation(fields: [posId], references: [id])
+
+  @@unique([productId, posId]) // Un produit ne peut avoir qu'une ligne par lieu
 }
 
 model StockMovement {
   id          Int          @id @default(autoincrement())
   productId   Int
-  product     Product      @relation(fields: [productId], references: [id])
+  product     Product      @relation(fields: [productId], references: [id]) // rciproque(relation)
   quantity    Int          // Positif pour entrée, négatif pour sortie
   type        MovementType
   from        String
@@ -162,7 +249,49 @@ model StockMovement {
   reason      String?      // Utile pour la traçabilité des annulations
   createdAt   DateTime     @default(now())
 
+  userId      Int          // qui a fait qui (action annuler, valider)
+
   @@index([productId, createdAt])
+}
+
+//Fiche technique / Recette
+model Recipe  {
+  id                       Int         @id @default(autoincrement())
+  productId                Int         @unique
+  product                  Product     @relation(fields: [productId], references: [id])
+  description              String?
+  ingredients              RecipeIngredient[]
+}
+
+model RecipeIngredient  {
+  id                       Int         @id @default(autoincrement())
+  recipeId                 Int
+  recipe                   Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredientId             Int
+  ingredient               Product     @relation(fields: [ingredientId], references: [id])
+  quantityRequired         Float
+}
+
+
+//Option Controle: Inventaire physique et ecart
+
+model PhysicalInventory  {
+  id              Int         @id @default(autoincrement())
+  checkedAt       DateTime    @default(now())
+  checkedBy       String
+  posLocation     String
+  notes           String?
+  details         InventoryDetail[]
+}
+
+model InventoryDetail  {
+  id              Int         @id @default(autoincrement())
+  inventoryId     Int 
+  inventory       PhysicalInventory     @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  productId       Int
+  theoreticalQuantity    Float
+  realQuantity    Float
+  discrepancy     Float
 }
 
 // ---------------------------------------------------------
@@ -198,21 +327,36 @@ model Payment {
 model Order {
   id              Int          @id @default(autoincrement())
   orderNumber     String       @unique // Numéro de facture (ex: FAC-2024-001)
-  totalAmount     Float
+  tableName       String?
+  totalAmount     Float        @default(0)
+
+  //Discount 
+  discountAmount  Float        @default(0)  
   
   status          OrderStatus  @default(PENDING) 
+
+  posId           Int
+  pos             PointOfSale  @relation(fields: [posId], references: [id])
 
   paymentMethodId Int
   paymentMethod   PaymentMethod @relation(fields: [paymentMethodId], references: [id])
   
   userId          Int          // Serveur ayant pris la commande [cite: 169]
   user            User         @relation("ServerOrders", fields: [userId], references: [id])
+
+  shiftId         Int
+  shift           PosShift     @relation(fields: [shiftId], references: [id])
   
   cashierId       Int?         // Caissier ayant validé le paiement [cite: 155]
   cashier         User?        @relation("CashierValidation", fields: [cashierId], references: [id])
   
   folioId         Int?         // Si lié à une chambre [cite: 44, 178]
   folio           Folio?       @relation(fields: [folioId], references: [id])
+
+  //Tracabilité de correction 
+  correctedFromFolioId         Int?       //stock ID de la mauvaise chambre si correction
+  correctionReason             String?    // Motif de la reaffectation par le superviseur
+  correctedById                Int?       // Id du supervisuer qui a corrigé
   
   items           OrderItem[]
   createdAt       DateTime     @default(now())
@@ -228,9 +372,75 @@ model OrderItem {
   productId Int
   quantity  Int     // Doit être > 0
   price     Float   // Historisation du prix au moment de la vente [cite: 190, 212]
-  order     Order   @relation(fields: [orderId], references: [id])
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product   Product @relation(fields: [productId], references: [id])
 }
+
+model PosShift  {
+  id                 Int                    @id @default(autoincrement())
+  userId             Int
+  user               User                   @relation(fields: [userId], references: [id])
+  openedAt           DateTime               @default(now())
+  closedAt           DateTime?
+  initialFloat       Float
+  expectedAmount     Float?
+  actualAmount       Float?                                // egal null temps k le shift est open
+  status             ShiftStatus            @default(OPEN)
+
+  posId             Int
+  pos               PointOfSale             @relation(fields: [posId], references: [id])
+
+  orders             Order[]
+
+//liason avec model dAILY REPORT
+  dailyReportId      Int?                       // optionnel vers la cloture generale de la journee
+  dailyReport        DailyReport?           @relation(fields: [dailyReportId], references: [id])
+}
+
+// ---------------------------------------------------------
+// -. DASHBOARD SECURITY & RECEPTION PARTIELLE
+// ---------------------------------------------------------
+
+model PurchaseRequest  {
+  id                 Int                    @id @default(autoincrement())
+  reference          String                 @unique
+  status             PurchaseStatus         @default(PENDING_APPROVAL)
+  createdAt          DateTime               @default(now())
+
+  requestedById      Int 
+  requestedBy        User                   @relation(fields: [requestedById], references: [id])
+
+  posId              Int?
+  pos                PointOfSale?           @relation(fields: [posId], references: [id])
+
+
+  items              PurchaseOrderItem[]
+  securityLogs       SecurityGateLog[]
+
+}
+
+model PurchaseOrderItem  {
+  id                 Int                    @id @default(autoincrement())
+  requestId          Int 
+  request            PurchaseRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  productId          Int
+  product            Product                @relation(fields: [productId], references: [id])
+
+  quantityOrdered    Float
+  quantityReceived   Float                  @default(0)
+  estimatedPrice     Float
+  finalPricePaid     Float?
+}
+
+model SecurityGateLog {
+  id                 Int                    @id @default(autoincrement())
+  requestId          Int
+  request            PurchaseRequest        @relation(fields: [requestId], references: [id])
+  verifiedAt         DateTime               @default(now())
+  verifiedBy         String
+  gateNotes          String
+}
+
 
 // ---------------------------------------------------------
 // 5. HÉBERGEMENT & PMS actualisé
@@ -322,11 +532,17 @@ model Folio {
 model DailyReport {
   id               Int          @id @default(autoincrement())
   date             DateTime     @default(now())
-  location         String       // "BAR", "RECEPTION", etc.
-  totalCollected   Float        // Somme physique collectée
+  
+  totalCollected   Float        // Somme physique collectée all shifts
   status           ReportStatus @default(SUBMITTED)
   createdById      Int
   createdBy        User         @relation(fields: [createdById], references: [id])
 
-  @@index([date, location])
+  //liason Pos removed location
+  posId            Int 
+  pos              PointOfSale  @relation(fields: [posId], references: [id])
+
+  shifts           PosShift[]  // permet de voir les shifts demi-journee
+
+  @@index([date, posId])
 }

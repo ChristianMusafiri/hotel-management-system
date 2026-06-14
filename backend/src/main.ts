@@ -12,7 +12,7 @@ async function bootstrap() {
   })
   );
 
-  app.enableCors();
+  app.enableCors(); // activation CORS pour une communication entre frtend and bckend
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

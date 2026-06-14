@@ -7,10 +7,14 @@ import { UsersModule } from './users/users.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RoomsModule } from './rooms/rooms.module';
 import { HotelModule } from './hotel/hotel.module';
+import { PosModule } from './pos/pos.module';
+import { PosShiftModule } from './pos-shift/pos-shift.module';
+import { OrderModule } from './order/order.module';
+import { PrinterModule } from './printer/printer.module';
 
 @Module({
   imports: [ConfigModule.forRoot({isGlobal: true,}),
-    AuthModule, PrismaModule, UsersModule, RoomsModule, HotelModule],
+    AuthModule, PrismaModule, UsersModule, RoomsModule, HotelModule, PosModule, PosShiftModule, OrderModule, PrinterModule],
   controllers: [AppController],
   providers: [AppService],
 })
