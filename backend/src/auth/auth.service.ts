@@ -23,7 +23,7 @@ export class AuthService {
     // ajout related to token: JwtService
     async login(loginDto: LoginDto) {
         const user = await this.prisma.user.findUnique({
-            where: { username: loginDto.username },
+            where:  { hotelId_username: { hotelId: loginDto.hotelId, username: loginDto.username } },
             include: { roles: { include: { role: true } } }
         }) as UserWithRoles | null; // best way to make typescript in confidence that include is in the Prisma request
 
@@ -37,6 +37,8 @@ export class AuthService {
         const payload = {
             sub: user.id,
             username: user.username,
+            name: user.name,
+            hotelId: user.hotelId,
             roles: userRoles
         };
 
@@ -46,6 +48,7 @@ export class AuthService {
                 id: user.id,
                 username: user.username,
                 name: user.name,
+                hotelId: user.hotelId,
                 roles: userRoles
             },
         };
@@ -53,10 +56,10 @@ export class AuthService {
 
     //Methode pour enregistrer l'utilisateur 
     async register(registerDto: RegisterDto){
-        const { username, password, name, email } = registerDto;
+        const { username, password, name, email, hotelId } = registerDto;
 
         const userExists = await this.prisma.user.findUnique({
-            where: { username },
+            where: { hotelId_username: { hotelId: hotelId, username } },
         });
         if(userExists){
             throw new ConflictException("ce nom d'utilisateur existe deja")
@@ -69,6 +72,7 @@ export class AuthService {
                 name,
                 email: email || null, // flexible en cas dajout du mail apres,for now, if undefined , on stocke null
                 password: hashedPassword,
+                hotelId: hotelId,
             },
         });
 
@@ -83,7 +87,7 @@ export class AuthService {
 
         //on cherche lutilisateur par son username
         const user = await this.prisma.user.findUnique({
-            where: { username },
+            where: { hotelId_username: { hotelId: loginDto.hotelId, username: loginDto.username } },
             include: { roles: { include: { role: true } } } // donne acces au .name cfr guardsroles
         });
         // Si l'utilisateur n'existe pas, erreur 401

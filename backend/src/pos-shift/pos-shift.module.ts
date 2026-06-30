@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { PosShiftService } from './pos-shift.service';
 import { PosShiftController } from './pos-shift.controller';
 
+import { PrinterModule } from '../printer/printer.module';
 import { PrismaModule } from '../prisma/prisma.module'; //
 import { JwtModule } from '@nestjs/jwt'; //Indispensable pour le JwtAuthGuard
 
 @Module({
-  imports: [ PrismaModule, JwtModule],
+  imports: [ PrinterModule, PrismaModule, JwtModule],
   providers: [PosShiftService],
   controllers: [PosShiftController]
 })

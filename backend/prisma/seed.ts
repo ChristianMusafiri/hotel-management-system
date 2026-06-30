@@ -13,12 +13,14 @@ const prisma = new PrismaClient(
 async function main() {
     console.log('Connexion établie ! Début du remplissage...')
 
+    const TARGET_HOTEL_ID = 1;
+
   // CONFIG HOTEL : LIGNE UNIQUE : ID: 1
-  await prisma.hotel.upsert({
-    where: { id: 1 },
+  const hotel = await prisma.hotel.upsert({
+    where: { id: TARGET_HOTEL_ID },
     update: {}, //si lhotel existe deja on est touche pas à ses config modifiées par l'Admin
     create : {
-      id: 1,
+      id: TARGET_HOTEL_ID,
       name: "MON HOTEL - CONFIGURATION GLOBALE",
       timezone: "Africa/Lubumbashi",
       baseCurrency: "USD",
@@ -36,9 +38,10 @@ async function main() {
       dayUseGracePeriodMins: 15,
     },
   });
+  console.log(`Hôtel validé : ${hotel.name}`)
 
   // 1. Création des Rôles de base
-  const roles = ['ADMIN', 'CASHIER', 'RECEPTIONIST', 'WAITER', 'STORE_MANAGER','HOUSE_KEEPER','MANAGER']
+  const roles = ['ADMIN', 'CASHIER', 'GENERALCASHIER', 'RECEPTIONIST', 'WAITER', 'STORE_MANAGER','HOUSE_KEEPER','MANAGER', 'CEO']
   for (const roleName of roles) {
     await prisma.role.upsert({
       where: { name: roleName },
@@ -48,12 +51,12 @@ async function main() {
   }
 
   // 2. Création des Catégories de points de vente
-  const categories = ['BAR', 'RESTAURANT', 'HEBERGEMENT', 'DIVERS']
+  const categories = ['BAR', 'BOUTIQUE / DIVERS', 'COFFEE-SHOP', 'HEBERGEMENT', 'PATISSERIE & BOULANGERIE', 'RESTAURANT', 'SERVICES']
   for (const catName of categories) {
     await prisma.category.upsert({
-      where: { name: catName },
+      where: { hotelId_name: { hotelId: TARGET_HOTEL_ID, name: catName } },
       update: {},
-      create: { name: catName },
+      create: { name: catName, hotelId: TARGET_HOTEL_ID, isActive: true },
     })
   }
 
@@ -64,17 +67,20 @@ async function main() {
     { name: 'ORANGE MONEY', category: 'MOBILE' },
     { name: 'M-PESA', category: 'MOBILE' },
     { name: 'VISA', category: 'CARD' },
-    { name: 'MASTERCARD', category: 'CARD' }
+    { name: 'MASTERCARD', category: 'CARD' },
+
+    { name: 'CREDIT', category: 'DEBT' },
+    { name: 'MANAGEMENT', category: 'OFFICER' }
   ];
   for (const p of payments) {
     await prisma.paymentMethod.upsert({
-      where: { name: p.name },
+      where: { hotelId_name: { hotelId: TARGET_HOTEL_ID, name: p.name } },
       update: { category: p.category },
-      create: { name: p.name, category: p.category },
+      create: { name: p.name, category: p.category, hotelId: TARGET_HOTEL_ID },
     })
   }
 
-  console.log('Bien!   Données de base (Rôles, Catégories, Paiements) insérées avec succes!');
+  console.log('Bien! Données de base (Rôles, Catégories, Paiements) insérées avec succes!');
 }
 
 main()

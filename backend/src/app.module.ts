@@ -11,10 +11,12 @@ import { PosModule } from './pos/pos.module';
 import { PosShiftModule } from './pos-shift/pos-shift.module';
 import { OrderModule } from './order/order.module';
 import { PrinterModule } from './printer/printer.module';
+import { StockModule } from './stock/stock.module';
+import { GuestModule } from './guest/guest.module';
 
 @Module({
   imports: [ConfigModule.forRoot({isGlobal: true,}),
-    AuthModule, PrismaModule, UsersModule, RoomsModule, HotelModule, PosModule, PosShiftModule, OrderModule, PrinterModule],
+    AuthModule, PrismaModule, UsersModule, RoomsModule, HotelModule, PosModule, PosShiftModule, OrderModule, PrinterModule, StockModule, GuestModule],
   controllers: [AppController],
   providers: [AppService],
 })

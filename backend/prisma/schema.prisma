@@ -20,7 +20,8 @@ enum OrderStatus {
 
   PENDING_ROOMLINK // Envoyée à la recption, en attente de validation pour la chambre
   CHARGED_TO_ROOM  // Validee et imputé sur le Folio de la chambre
-
+  MANAGEMENT_CLOSED // 
+  
   PRINTED   // Facture imprimée (Verrouillée, en attente d'encaissement à la caisse)
   VALIDATED // Confirmée par le caissier (Paiement reçu)
   LOSS      // Perte (Client parti sans payer, imputé au serveur)
@@ -28,13 +29,29 @@ enum OrderStatus {
 }
 
 enum MovementType {
-  SALE                  // Vente normale
-  REQUISITION           // Transfert entre stocks et POS (demande)
+  SALE                  // Vente normale au POS
+  //REQUISITION           // (demande unitiale) Grand Magasin remplacer par PENDING dans Stocktranfer
+  TRANSFER              // Transfert physique validé (ex: Magasin central ➔ Bar)
   RETURN_AFTER_CANCEL   // Retour suite à annulation facture
-  PURCHASE              // Entrée fournisseur(Goods Received)
+  PURCHASE              // Entrée fournisseur(flux d'achat - Bon de réception GRN)
   INTERNAL_PRODUCTION   // Consommation de matières premières pour une recette (Fiche technique)
   INTERNAL_STAFF        // Nourriture ou consommation du personnel (Staff)
   LOSS                  // Perte ou casse
+  INVENTORY_ADJUSTMENT  // Régularisation suite à un écart d'inventaire physique
+  MIXED_BATCH_RECONCILIATION // Pour corriger  les erreurs de lots mélangés
+}
+
+enum TransferStatus {
+  PENDING                 // Emis par le BarMan
+  DISPATCHED              // Validée par lwe storeKeeper (sorti en transit)
+  RECEIVED                // Receiced et validé par le Barman / pos ajout au stock cible
+  CORRECTION_PENDING      // En cas d'erreur de quantité, attend la double confirmation
+  CANCELLED               // annulé
+}
+
+enum TransferType {
+  STANDARD                // Flux officiel: Magasin Général ➔ POS (avec étapes: Pending -> Dispatched -> Received)
+  INTER_POS               // Entraide direct: POS ➔ POS (Ajustement atomique immédiat)
 }
 
 enum ReportStatus {
@@ -48,19 +65,52 @@ enum PaymentStatus  {
   PAID                //payé à la reception
   PARTIALLY_PAID
 }
+enum FundRequestStatus {
+  PENDING_CEO             // Dans le tableau de bord du Boss, en attente de signature
+  APPROVED                // Validée par le Boss (Autorise la caisse à décaisser)
+  DISBURSED               // Clôturée (La caisse a vidé cette demande de fonds)
+  REJECTED                // Rejetée globalement par le Boss
+}
 
 enum PurchaseStatus  {
-  PENDING_APPROVAL
-  APPROVED
+  PENDING_MGR_REVIEW     // Créée par l'économe/dépôt (Prix estimés)
+  VERIFIED_REQUISITION   // Validée par le Manager (Prix fixes négociés et verrouillés)
+  IN_FUND_REQUEST        // Capturée dans une Demande de Fonds envoyée au Boss
+  READY_FOR_CASH         // Approuvée (par le Boss ou en direct si Standard) -> Prêt pour décaissement
+  DISBURSED              // Argent décaissé par le caissier et remis à l'acheteur
+
   PARTIALLY_RECEIVED     // reception partielle(gate,Gstore,items requisitionés)
   RECEIVED
-  REJECTED
+  REJECTED               // Rejetée par le Manager ou le Boss
 }
 
 enum ShiftStatus  {
   OPEN
   CLOSED
 }
+
+// GUEST 
+enum GuestStatus {
+  GOOD
+  SUSPENDED
+  DEBTOR      // Alerte à la réception lors du Check-in/Réservation
+  VIP
+}
+
+enum PortalStatus {
+  INACTIVE            // Le client n'a jamais demandé d'accès
+  PENDING_VALIDATION  // Demande soumise, en attente du clic du recouvreur
+  ACTIVE              // Accès autorisé
+  SUSPENDED           // Bloqué par le recouvreur (mode lecture seule)
+}
+
+//UserStatus
+enum StaffStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
 
 // ---------------------------------------------------------
 // HOTEL (Time & Currency config )
@@ -78,8 +128,8 @@ model Hotel {
   dateFormat      String      @default("DD/MM/YYYY")     //monnaie de calcul
   baseCurrency    String      @default("USD")     //monnaie de calcul
   localCurrency   String      @default("FC")     //monnaie local
-  currencyExchangeRate   Float      @default(2300)   //taux du jour
-  taxeRate        Float       @default(16)       // Rdc taxe TVA: 16%
+  currencyExchangeRate   Decimal      @default(2300)   //taux du jour
+  taxeRate        Decimal       @default(16)       // Rdc taxe TVA: 16%
 
   //Config hoteliere (regle opperationnelle)
   checkInHour     Int         @default(14)
@@ -96,13 +146,47 @@ model Hotel {
   isOvertimeDayuseFeeEnabled  Boolean         @default(false)
   isMultiShiftEnabled         Boolean         @default(false)    //shift partagé( demi) journee)
   maxPosAllowed               Int             @default(2)        //LIMITE POS 
+  isBossApprovalRequired      Boolean         @default(false)    // Option Premium activable par abonnement
 
   //Config DAY_USE overtime
-  dayUseOvertimeRate         Float          @default(8) // 
-  dayUseGracePeriodMins      Int            @default(15)  // 15min gratuites Periode de grace 
+  dayUseOvertimeRate         Decimal          @default(8) // 
+  dayUseGracePeriodMins      Int              @default(15)  // 15min gratuites Periode de grace 
   
   
-  updatedAt       DateTime    @updatedAt
+  updatedAt                  DateTime         @updatedAt
+
+  // Relations lié à isboss... ainsi que de cloisonnement
+  users                  User[]
+
+  fundRequests           FundRequest[]
+  purchaseRequests       PurchaseRequest[]
+  purchaseOrderItems     PurchaseOrderItem[]
+  secururGateLogs        SecurityGateLog[]
+
+  products               Product[]
+  categories             Category[]
+  stocks                 Stock[]
+  stockMovements         StockMovement[]
+  stockTransfers         StockTransfer[]
+  
+  pointsOfSale           PointOfSale[]
+  posShifts              PosShift[]
+  orders                 Order[]
+  orderItems             OrderItem[]
+
+  folios                 Folio[]
+  rooms                  Room[]
+  guest                  Guest[]
+  dailyReports           DailyReport[]
+  
+  payments               Payment[]
+  paymentMethods         PaymentMethod[]
+
+  physicalInventories    PhysicalInventory[]
+  
+  recipes                Recipe[]
+  recipesIngredients     RecipeIngredient[]
+
 }
 
 
@@ -112,10 +196,16 @@ model Hotel {
 model User {
   id               Int            @id @default(autoincrement())
   name             String
-  username         String         @unique // Identifiant de connexion sans escpace surtout(court)
-  email            String?         @unique // Indexé par défaut car unique, modify optional
+  username         String         // Identifiant de connexion sans escpace surtout(court)
+  email            String?        // Indexé par défaut car unique, modify optional
   /// @encrypted
   password         String         // Stockage sécurisé (Hashé via bcrypt dans le service)
+
+  // --- CONFIGURATION CRÉDIT INTERNE PERSONNEL STAFF ---
+  staffCreditLimit Decimal        @default(0)  // Plafond maximum autorisé (0 = aucun crédit)
+  staffBalance     Decimal        @default(0)  // Dette cumulée actuelle de l'agent (à retenir sur salaire)
+
+  status           StaffStatus    @default(ACTIVE) // Gérer les accès opérationnels
   
   roles            UserRole[]
   orders           Order[]        @relation("ServerOrders")
@@ -125,8 +215,14 @@ model User {
   purchaseRequests PurchaseRequest[] // purchase requested by user
   
   createdAt        DateTime       @default(now())
+  updatedAt        DateTime?      @updatedAt
 
-  @@index([username]) // Index pour recherche rapide lors du login
+  hotelId          Int       
+  hotel            Hotel          @relation(fields: [hotelId], references: [id])
+
+  @@unique([hotelId, username])   // Sécurité : Le username est unique UNIQUEMENT au sein d'un même hôtel !
+  @@unique([hotelId, email])      // Sécurité : L'email est unique par hôtel
+  @@index([username, hotelId])    // Index pour recherche rapide lors du login
 }
 
 model Role {
@@ -149,13 +245,22 @@ model UserRole {
 // ---------------------------------------------------------
 model PointOfSale {
   id                        Int                   @id @default(autoincrement())
-  name                      String                @unique                        //"RESAURANT", "BAR", ...
+  name                      String                //@unique(unique par etablissmnt @@end non global)                    //"RESAURANT", "BAR", ...
   type                      String                @default("STANDARD")
+  // mode Saas(pos)
   isActive                  Boolean               @default(true)
+  // SUPERVISEUR ACTIVE/DÉSACTIVE (remove default(0) stocksale to - )
+  allowEmergencySales       Boolean               @default(false) 
+  emergencyActivatedBy      Int?                  // Trace l'ID du superviseur qui a cliqué
+  emergencyActivatedAt      DateTime?
+
 
   //Mapping
   printerId                 String?
   printerPort               Int                   @default(9100) //port standard thermal printer
+
+  hotelId                   Int
+  hotel                     Hotel                 @relation(fields: [hotelId], references: [id])
 
   menus                     PosMenu[]             // fenetre dactivation des articles pour le pos
   orders                    Order[]
@@ -164,6 +269,8 @@ model PointOfSale {
   posShifts                 PosShift[]
 
   dailyReports              DailyReport[]      // liason rapport journalier  Pos
+
+  @@unique([hotelId, name])
 }
 
 model PosMenu  {
@@ -173,11 +280,11 @@ model PosMenu  {
   product                   Product               @relation(fields: [productId], references: [id])
 
   // Premium: Prix promotionnel 
-  customPrice               Float?
+  customPrice               Decimal?
   isActive                  Boolean               @default(true)
   createdAt                 DateTime              @default(now())
 
-  salePrice                 Float
+  salePrice                 Decimal
 
   @@id([posId, productId])
 }
@@ -187,16 +294,25 @@ model PosMenu  {
 // ---------------------------------------------------------
 model Category {
   id       Int       @id @default(autoincrement())
-  name     String    @unique // refer to POS
+  name     String    //@unique(no global) // refer to POS
+
+  hotelId   Int
+  hotel     Hotel    @relation(fields: [hotelId], references: [id])
+
+  // permettra de ne pas supprimer mais de desactiver en cas de non utilisation
+  isActive Boolean   @default(true)
+
   products Product[]
+
+  @@unique([hotelId, name])
 }
 
 model Product {
   id                       Int          @id @default(autoincrement())
   name                     String
-  code                     String       @unique
-  defaultPurchasePrice     Float         // Purchase Price (Prix d'achat de Base)
-  defaultSalePrice         Float        // Doit être validé > 0 dans le service [cite: 127]
+  code                     String       //@unique(no global)
+  defaultPurchasePrice     Decimal      // Purchase Price (Prix d'achat de Base)
+  defaultSalePrice         Decimal      // Doit être validé > 0 dans le service [cite: 127]
 
   itemCategory             String
   itemMeasure              String
@@ -212,46 +328,112 @@ model Product {
   categoryId               Int
   category                 Category      @relation(fields: [categoryId], references: [id])
 
+  hotelId                  Int
+  hotel                    Hotel         @relation(fields: [hotelId], references: [id])
+
   //Relations
   stocks      Stock[]
+  movements   StockMovement[]
+  stockTransfers         StockTransfer[]
+  
   posMenus    PosMenu[]                //permet d'activer ce produit sur diff POS
   orderItems  OrderItem[]
-  movements   StockMovement[]
+  
 
   purchaseItems   PurchaseOrderItem[]
   recipes         Recipe[]
   usedInRecipes   RecipeIngredient[]
 
-  @@index([code])
+  @@unique([hotelId, code])            // unique par hotel
+  @@index([code, hotelId])
 }
 
 model Stock {
-  id         Int      @id @default(autoincrement())
-  //location   String   // "MAGASIN", "BAR", "CUISINE" [cite: 137]
-  quantity   Int      @default(0) // Validation logicielle : toujours >= 0
+  id         Int            @id @default(autoincrement())
+  //location   String                   // "MAGASIN", "BAR", "CUISINE" [cite: 137]
+  quantity   Decimal        @default(0)   // Validation logicielle : toujours >= 0
+  expiryDate DateTime       @default(now())    // chaque lot physique aura sa date
   productId  Int
-  product    Product  @relation(fields: [productId], references: [id])
+  product    Product        @relation(fields: [productId], references: [id])
 
   posId      Int?
   pos        PointOfSale?   @relation(fields: [posId], references: [id])
+  hotelId    Int
+  hotel      Hotel          @relation(fields: [hotelId], references: [id])
 
-  @@unique([productId, posId]) // Un produit ne peut avoir qu'une ligne par lieu
+  batches    StockBatch[]
+
+  @@unique([hotelId, productId, posId, expiryDate]) // Un produit ne peut avoir qu'une ligne par lieu(Produit + Emplacement + Date d'expiration)
+}
+
+model StockBatch {
+  id              Int           @id @default(autoincrement())
+  stockId         Int
+  stock           Stock         @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  quantity        Decimal         // Quantité restante spécifique à ce lot
+  expiryDate      DateTime?       //  Optionnel pour laisser le libre arbitre (modifiable)
+  createdAt       DateTime      @default(now())
 }
 
 model StockMovement {
   id          Int          @id @default(autoincrement())
   productId   Int
   product     Product      @relation(fields: [productId], references: [id]) // rciproque(relation)
-  quantity    Int          // Positif pour entrée, négatif pour sortie
+  quantity    Decimal      // Positif pour entrée, négatif pour sortie
   type        MovementType
   from        String
   to          String?
   reason      String?      // Utile pour la traçabilité des annulations
+
+  costPrice   Decimal      @default(0) // PUMP(Valorisation financière de la perte)
+  transferId Int?         // Lien optionnel si le mouvement vient d'un transfert validé
+  transfer    StockTransfer? @relation(fields: [transferId], references: [id])
+
   createdAt   DateTime     @default(now())
+
+  hotelId     Int          // 
+  hotel       Hotel        @relation(fields: [hotelId], references: [id])
 
   userId      Int          // qui a fait qui (action annuler, valider)
 
-  @@index([productId, createdAt])
+  @@index([hotelId, productId, createdAt])
+}
+
+model StockTransfer {
+  id                      Int              @id @default(autoincrement())
+  reference               String           // ex: TRF-2026-06-0000001
+
+  type                    TransferType     @default(STANDARD) // Permet de savoir instantanément le type de flux
+  status                  TransferStatus   @default(PENDING)
+
+  productId               Int
+  product                 Product          @relation(fields: [productId], references: [id])
+
+  quantityRequested       Decimal          // La demande initiale du barman (ex: 10)
+  quantityDispatched      Decimal          @default(0)  // ce que le storekeeper a reellement envoyé 
+  quantityReceived        Decimal          @default(0)
+
+  fromPosId               Int?
+  toPosId                 Int
+
+  createdById             Int              // Le BARMAN qui demande 
+  dispatchedById          Int?             // le storeKeeper qui envoie
+  receivedById            Int?             // le barman qui valide la reception finale
+
+  isCorrectionApproved    Boolean          @default(false)
+  approvedByAdminId       Int?             // confirmé par Admn
+  approvedByStoreId       Int?             // confirmé par StoreKeeper
+
+  reason                  String?          // Notes ou moti fe refus, retour
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  hotelId                 Int
+  hotel                   Hotel            @relation(fields: [hotelId], references: [id])
+
+  movements               StockMovement[]  // les ecritures comptables generées une fois validé
+  @@index([hotelId, reference])
+  @@index([hotelId, status])
 }
 
 //Fiche technique / Recette
@@ -260,6 +442,10 @@ model Recipe  {
   productId                Int         @unique
   product                  Product     @relation(fields: [productId], references: [id])
   description              String?
+
+  hotelId                  Int                // cloisonnement de la cuisine
+  hotel                    Hotel              @relation(fields: [hotelId], references: [id])
+
   ingredients              RecipeIngredient[]
 }
 
@@ -269,15 +455,20 @@ model RecipeIngredient  {
   recipe                   Recipe      @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   ingredientId             Int
   ingredient               Product     @relation(fields: [ingredientId], references: [id])
-  quantityRequired         Float
+  quantityRequired         Decimal
+
+  hotelId                  Int          // pour traçabilité du coût matière par hôte
+  hotel                    Hotel       @relation(fields: [hotelId], references: [id])
 }
 
 
 //Option Controle: Inventaire physique et ecart
 
 model PhysicalInventory  {
-  id              Int         @id @default(autoincrement())
-  checkedAt       DateTime    @default(now())
+  id              Int                   @id @default(autoincrement())
+  hotelId         Int                   // pour sécuriser les audits de stock
+  hotel           Hotel                 @relation(fields: [hotelId], references: [id])
+  checkedAt       DateTime              @default(now())
   checkedBy       String
   posLocation     String
   notes           String?
@@ -285,13 +476,13 @@ model PhysicalInventory  {
 }
 
 model InventoryDetail  {
-  id              Int         @id @default(autoincrement())
+  id              Int                   @id @default(autoincrement())
   inventoryId     Int 
   inventory       PhysicalInventory     @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
   productId       Int
-  theoreticalQuantity    Float
-  realQuantity    Float
-  discrepancy     Float
+  theoreticalQuantity    Decimal
+  realQuantity    Decimal
+  discrepancy     Decimal
 }
 
 // ---------------------------------------------------------
@@ -299,17 +490,24 @@ model InventoryDetail  {
 // ---------------------------------------------------------
 model PaymentMethod {
   id              Int          @id @default(autoincrement())
-  name            String       @unique // Cash,momo: Airtel m, orange m, Visa,...
+  name            String        // Cash,momo: Airtel m, orange m, Visa,...
   category        String?       // grouper par type
   isActive        Boolean      @default(true) // permet de desactiver sans supprimer
+
+  hotelId         Int?           // Optionnel (Null = Global, Int = Spécifique à l'hôtel)
+  hotel           Hotel?       @relation(fields: [hotelId], references: [id])
   orders          Order[]
-  payments       Payment[]
+  payments        Payment[]
+
+  @@unique([hotelId, name])
 }
 
 //flux financier
 model Payment { 
   id                   Int           @id  @default(autoincrement())
-  amount               Float          //montant encaissé lors de la transaction
+  hotelId              Int           //Impératif pour les encaissements directs sans nuitée (ex: Caisse Boutique/POS)
+  hotel                Hotel         @relation(fields: [hotelId], references: [id])
+  amount               Decimal       //montant encaissé lors de la transaction
   createdAt            DateTime      @default(now())
   receivedBy           String        // username
 
@@ -321,19 +519,22 @@ model Payment {
   paymentMethodId      Int
   PaymentMethod        PaymentMethod @relation(fields: [paymentMethodId], references: [id])
 
-  @@index([folioId])
+  @@index([folioId, hotelId])
  }
 
 model Order {
   id              Int          @id @default(autoincrement())
-  orderNumber     String       @unique // Numéro de facture (ex: FAC-2024-001)
+  orderNumber     String       // Numéro de facture (ex: FAC-2024-001)
   tableName       String?
-  totalAmount     Float        @default(0)
+  totalAmount     Decimal      @default(0)
 
   //Discount 
-  discountAmount  Float        @default(0)  
+  discountAmount  Decimal      @default(0)  
   
   status          OrderStatus  @default(PENDING) 
+
+  hotelId         Int
+  hotel           Hotel        @relation(fields: [hotelId], references: [id])
 
   posId           Int
   pos             PointOfSale  @relation(fields: [posId], references: [id])
@@ -362,18 +563,21 @@ model Order {
   createdAt       DateTime     @default(now())
   validatedAt     DateTime?
 
-  @@index([orderNumber])
-  @@index([status])
+  @@index([hotelId, orderNumber])
+  @@index([status, hotelId])
 }
 
 model OrderItem {
   id        Int     @id @default(autoincrement())
   orderId   Int
   productId Int
-  quantity  Int     // Doit être > 0
-  price     Float   // Historisation du prix au moment de la vente [cite: 190, 212]
+  quantity  Decimal     // Doit être > 0
+  price     Decimal     // Historisation du prix au moment de la vente [cite: 190, 212]
   order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product   Product @relation(fields: [productId], references: [id])
+
+  hotelId   Int     // faciliter les calculs statistiques de ventes directs
+  hotel     Hotel   @relation(fields: [hotelId], references: [id])
 }
 
 model PosShift  {
@@ -382,13 +586,19 @@ model PosShift  {
   user               User                   @relation(fields: [userId], references: [id])
   openedAt           DateTime               @default(now())
   closedAt           DateTime?
-  initialFloat       Float
-  expectedAmount     Float?
-  actualAmount       Float?                                // egal null temps k le shift est open
+  initialFloat       Decimal
+  expectedAmount     Decimal?
+  actualAmount       Decimal?                                // egal null temps k le shift est open
+  totalCovers        Int?                   @default(0)   // Nombre de couverts
+  closureComment     String?                              // Rubrique correctif/justification si écart de caisse
   status             ShiftStatus            @default(OPEN)
 
-  posId             Int
-  pos               PointOfSale             @relation(fields: [posId], references: [id])
+  posId              Int
+  pos                PointOfSale            @relation(fields: [posId], references: [id])
+
+  hotelId            Int                     // sécuriser l'audit des caisses
+  hotel              Hotel                  @relation(fields: [hotelId], references: [id])
+
 
   orders             Order[]
 
@@ -401,10 +611,27 @@ model PosShift  {
 // -. DASHBOARD SECURITY & RECEPTION PARTIELLE
 // ---------------------------------------------------------
 
+model FundRequest {
+  id                 Int                    @id @default(autoincrement())
+  code               String                 // ex: DF-2026-001
+  totalAmount        Decimal
+  status             FundRequestStatus      @default(PENDING_CEO)
+  notes              String?
+  createdAt          DateTime               @default(now())
+
+  hotelId            Int
+  hotel              Hotel                  @relation(fields: [hotelId], references: [id])
+
+  purchaseRequests   PurchaseRequest[]
+
+  @@unique([hotelId, code])
+}
+
+
 model PurchaseRequest  {
   id                 Int                    @id @default(autoincrement())
-  reference          String                 @unique
-  status             PurchaseStatus         @default(PENDING_APPROVAL)
+  reference          String                 
+  status             PurchaseStatus         @default(PENDING_MGR_REVIEW)
   createdAt          DateTime               @default(now())
 
   requestedById      Int 
@@ -413,10 +640,17 @@ model PurchaseRequest  {
   posId              Int?
   pos                PointOfSale?           @relation(fields: [posId], references: [id])
 
+  hotelId            Int
+  hotel              Hotel                  @relation(fields: [hotelId], references: [id])
+
+  // Liaison vers le regroupement du Boss (Optionnel car inexistant en mode Standard sans abonnement)
+  fundRequestId      Int?
+  fundRequest        FundRequest?           @relation(fields: [fundRequestId], references: [id])
 
   items              PurchaseOrderItem[]
   securityLogs       SecurityGateLog[]
 
+  @@unique([hotelId, reference])
 }
 
 model PurchaseOrderItem  {
@@ -426,10 +660,13 @@ model PurchaseOrderItem  {
   productId          Int
   product            Product                @relation(fields: [productId], references: [id])
 
-  quantityOrdered    Float
-  quantityReceived   Float                  @default(0)
-  estimatedPrice     Float
-  finalPricePaid     Float?
+  quantityOrdered    Decimal
+  quantityReceived   Decimal                @default(0)
+  estimatedPrice     Decimal                  // Prix initial estimé par l'économe
+  finalPricePaid     Decimal?                 // Prix fixe verrouillé après négociation
+
+  hotelId            Int                      // simplifier le reporting d'achat
+  hotel              Hotel                  @relation(fields: [hotelId], references: [id]) 
 }
 
 model SecurityGateLog {
@@ -439,11 +676,14 @@ model SecurityGateLog {
   verifiedAt         DateTime               @default(now())
   verifiedBy         String
   gateNotes          String
+
+  hotelId            Int                     // ajout pour contrôle d'accès
+  hotel              Hotel                  @relation(fields: [hotelId], references: [id])
 }
 
 
 // ---------------------------------------------------------
-// 5. HÉBERGEMENT & PMS actualisé
+// HÉBERGEMENT & PMS actualisé
 // ---------------------------------------------------------
 enum RoomStatus {
   AVAILABLE
@@ -454,27 +694,79 @@ enum RoomStatus {
 }
 
 model Room {
-  id         Int      @id @default(autoincrement())
-  number     String   @unique
-  type       String   // Royal SUITE, Standard,etc.
-  price      Float    
-  status     RoomStatus   @default(AVAILABLE)
+  id              Int          @id @default(autoincrement())
+  number          String       //@unique(non global)
+  type            String       // Royal SUITE, Standard,etc.
+  price           Decimal    
+  status          RoomStatus   @default(AVAILABLE)
   
-  isReady    Boolean  @default(true)    //switch Housekeeper
-  lastCleanedAt   DateTime  @default(now())
+  isReady         Boolean      @default(true)    //switch Housekeeper
+  lastCleanedAt   DateTime     @default(now())
 
-  folios     Folio[]
+  hotelId         Int
+  hotel           Hotel        @relation(fields: [hotelId], references: [id])
+
+  folios          Folio[]
+
+  @@unique([hotelId, number])
 }
 
 model Guest {
-  id         Int       @id @default(autoincrement())
-  name       String
-  email      String    @unique
-  password   String     //acces siteweb
-  phone      String?
-  reviews    Review[]   // commentaire du guest
-  folios     Folio[]
-  createdAt  DateTime  @default(now())
+  id                  Int             @id @default(autoincrement())
+  name                String          // some as nickName
+
+  // Informations de la fiche d'enregistrement simplifiée(Registration Card)
+  title               String?
+  firstName           String
+  lastName            String
+  dob                 DateTime?       // Date de naissance
+  nationality         String?
+
+  // Pièce d'identité
+  idCardNumber        String?         // Numero de piece d'identité (passport / carte d'electeur)
+  placeOfIssue        String?
+  dateOfIssue         DateTime?
+  dateOfExpiry        DateTime?
+
+  // Contact & Adresse
+  address             String?
+  city                String?
+  country             String?
+  phone               String?
+  email               String          
+  password            String          // Acces siteweb
+  
+  // --- RECOUVREMENT & PORTAIL CLIENT ---
+  contractNumber      String?         // Numero de contrat ou de dernière facture pour le rapprochement
+  companyName         String?         // Nom de l'entreprise (pour les clients corporatifs)
+
+  portalStatus        PortalStatus    @default(INACTIVE)      // Gère le statut d'accès du portail
+  isMatchPerfect      Boolean         @default(false)         // Flag système pour dire au recouvreur: "Ça matche à 100% !"
+
+  lastReminderAt      DateTime?       // Date de la dernière relance automatique
+  paymentPromiseDate  DateTime?       // Renseignée par le client via le Guest Portal
+
+  collerctorId        Int?            // Agent de recouvrement attitré (Optionnel, lié à ton RBAC)
+
+  // Statut de confiance du client
+  creditStatus        GuestStatus     @default(GOOD)
+
+  // Un montant négatif = le client a une dette envers l'hôtel, positif = a un credit (accompte)
+  accountBalance      Decimal         @default(0)
+
+  // Historiques & Audit Staff
+  validatedBy         String?      // Agent ayant validé l'identité au comptoir
+  validatedAt         DateTime?
+  createdAt           DateTime        @default(now())
+
+  hotelId             Int             // la conformité RGPD et la sécurité inter-hôtels
+  hotel               Hotel           @relation(fields: [hotelId], references: [id])
+
+  reviews             Review[]        // commentaire du guest
+  folios              Folio[]
+ 
+
+  @@unique([hotelId, email]) // Un client est unique par hôtel et non globalement !
 }
 
 model Review {
@@ -501,6 +793,8 @@ enum FolioStatus {
 // Petit modification pour lier le client à la chambre
 model Folio {
   id         Int       @id @default(autoincrement())
+  hotelId    Int           // Ajouté pour un cloisonnement direct et ultra-sécurisé du PMS
+  hotel      Hotel     @relation(fields: [hotelId], references: [id])
   roomId     Int
   room       Room      @relation(fields: [roomId], references: [id])
   guestId    Int?      // optionnel (client non inscrit: en passage)
@@ -517,13 +811,13 @@ model Folio {
   waivedAt                  DateTime?           //Date annulation
   reasonForWaive            String?             //obligatoire 
 
-  totalBill       Float          @default(0)     //easy bill separation with Ttamount
+  totalBill       Decimal        @default(0)     //easy bill separation with Ttamount
   status          FolioStatus    @default(CHECKED_IN)
   paymentStatus   PaymentStatus  @default(UNPAID)
   orders          Order[]
-  payments         Payment[]
+  payments        Payment[]
   
-  @@index([roomId, status])
+  @@index([roomId, status, hotelId])
 }
 
 // ---------------------------------------------------------
@@ -533,10 +827,13 @@ model DailyReport {
   id               Int          @id @default(autoincrement())
   date             DateTime     @default(now())
   
-  totalCollected   Float        // Somme physique collectée all shifts
+  totalCollected   Decimal      // Somme physique collectée all shifts
   status           ReportStatus @default(SUBMITTED)
   createdById      Int
   createdBy        User         @relation(fields: [createdById], references: [id])
+
+  hotelId          Int
+  hotel            Hotel        @relation(fields: [hotelId], references: [id])
 
   //liason Pos removed location
   posId            Int 
@@ -544,5 +841,5 @@ model DailyReport {
 
   shifts           PosShift[]  // permet de voir les shifts demi-journee
 
-  @@index([date, posId])
+  @@index([date, hotelId, posId])
 }

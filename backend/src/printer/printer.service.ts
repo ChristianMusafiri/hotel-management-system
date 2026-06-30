@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as net from 'net';
-import { resolve } from 'path';
+//import { resolve } from 'path';
 
 @Injectable()
 export class PrinterService {

@@ -20,12 +20,18 @@ export class RolesGuard implements CanActivate{
 
         // utilisateur injecté via JwtAuthGuard
         const { user } = context.switchToHttp().getRequest();
+        if (!user || !user.roles) return false;
+
+        // Extraction flexible des rôles (gère ['ADMIN'] ou [{ role: { name: 'ADMIN' } }])
+        const userRoleNames: string[] = user.roles.map((r: any) => {
+            if (typeof r === 'string') return r;
+            if (r?.role?.name) return r.role.name; // Format Prisma relation
+            if (r?.name) return r.name;
+            return '';
+        });
 
         // verification if user a un des roles requis
-        const hasRole = user.roles?.some(
-            (roleName: string) => {
-                return requiredRoles.includes(roleName)
-            }) 
+        const hasRole = userRoleNames.some(roleName => requiredRoles.includes(roleName));
         
         if (!hasRole){
             throw new ForbiddenException("Accès refusé : contactez l'administrateur pour y acceder");

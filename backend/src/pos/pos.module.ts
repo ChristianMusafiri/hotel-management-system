@@ -6,8 +6,8 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Module({
-  imports: [PrismaModule, JwtAuthGuard],
-  providers: [PosService],
+  imports: [PrismaModule],
+  providers: [PosService, JwtAuthGuard],
   controllers: [PosController]
 })
 export class PosModule {}

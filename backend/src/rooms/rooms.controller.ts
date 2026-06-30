@@ -13,8 +13,8 @@ export class RoomsController {
 
   @Get() //On affiche toutes les chambres
   @Roles('ADMIN', 'RECEPTIONIST', 'MANAGER')
-  findAll() {
-    return this.roomsService.getAllRooms();
+  findAll(@Request() req: any) {
+    return this.roomsService.getAllRooms(req.user.hotelId);
   }
 
   // process checkin 
@@ -26,37 +26,43 @@ export class RoomsController {
     //ROLE dutilisateur connecté
     @Request() req: any
   ) {
-    const userRole = req.user.role //extraction du role from user injecté par JwtAuthGuard
-    return this.roomsService.checkIn(+id, body, userRole);
+    const userRoles: string[] = req.user.roles || [];//extraction du role from user injecté par JwtAuthGuard
+    const hotelId = req.user.hotelId; // extraction token Id Hotel
+    // const primaryRole: string = userRoles[0] || ''
+    return this.roomsService.checkIn(+id, body, userRoles, hotelId);
   }
 
   //Process checkout
   @Patch('folios/:id/check-out')
   @Roles('ADMIN', 'RECEPTIONIST')
-  async checkOut(@Param('id') id: string) {
-    return this.roomsService.checkOut(+id);
+  async checkOut(@Param('id') id: string, @Request() req: any) {
+    return this.roomsService.checkOut(+id, req.user.hotelId);
   }
 
   //Annulation penalité facture Room (overtime client)
   @Patch('folio/:id/waive-overtime')
   @UseGuards(JwtAuthGuard)
   async waiveOvertime(
-    @Param('id') id:number,
+    @Param('id') id: string,
     @Body('reason') reason: string,
     @Request() req: any
   ) {
-    if(req.user.role !== 'ADMIN' && req.user.role !== 'MANAGER') {
+    const userRoles: string[] = req.user.roles || [];
+
+    const isAuthorized = userRoles.includes('ADMIN') || userRoles.includes('MANAGER');
+
+    if(!isAuthorized) {
       throw new ForbiddenException ("Acces refusé; Contactez le manager pour annuler la pénalité.")
     }
 
     const managerName = req.user.name
-    return this.roomsService.waiveOvertime(id, managerName, reason);
+    return this.roomsService.waiveOvertime(+id, managerName, reason, req.user.hotelId);
   }
 
   //Valider le nettoyage
   @Patch(':id/clean')
   @Roles('ADMIN', 'HOUSE_KEEPER') // Seul l'admin ou le housekeeper peut valider
-  async validateCleaning(@Param('id') id: string) {
-    return this.roomsService.validateCleaning(+id);
+  async validateCleaning(@Param('id') id: string, @Request() req: any) {
+    return this.roomsService.validateCleaning(+id, req.user.hotelId);
   }
 }
